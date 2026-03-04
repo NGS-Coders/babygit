@@ -1,0 +1,8 @@
+{
+  "dev": {
+    "run": "cargo run"
+  },
+  "server": "maincloud",
+  "database": "babygit-00091",
+  "module-path": "./spacetimedb"
+}
