@@ -7,6 +7,7 @@ edition = "2021"
 exclude = ["spacetimedb"]
 
 [dependencies]
+anyhow = "1.0"
 dotenv = "0.15"
 spacetimedb-sdk = { version = "2.0" }
 tokio = { version = "1.50", features = ["fs", "rt"] }
