@@ -6,16 +6,6 @@
 #![allow(unused, clippy::all)]
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
-pub mod add_reducer;
-pub mod person_table;
-pub mod person_type;
-pub mod say_hello_reducer;
-
-pub use add_reducer::add;
-pub use person_table::*;
-pub use person_type::Person;
-pub use say_hello_reducer::say_hello;
-
 #[derive(Clone, PartialEq, Debug)]
 
 /// One of the reducers defined by this module.
@@ -23,10 +13,7 @@ pub use say_hello_reducer::say_hello;
 /// Contained within a [`__sdk::ReducerEvent`] in [`EventContext`]s for reducer events
 /// to indicate which reducer caused the event.
 
-pub enum Reducer {
-    Add { name: String },
-    SayHello,
-}
+pub enum Reducer {}
 
 impl __sdk::InModule for Reducer {
     type Module = RemoteModule;
@@ -35,18 +22,12 @@ impl __sdk::InModule for Reducer {
 impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
-            Reducer::Add { .. } => "add",
-            Reducer::SayHello => "say_hello",
             _ => unreachable!(),
         }
     }
     #[allow(clippy::clone_on_copy)]
     fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
         match self {
-            Reducer::Add { name } => {
-                __sats::bsatn::to_vec(&add_reducer::AddArgs { name: name.clone() })
-            }
-            Reducer::SayHello => __sats::bsatn::to_vec(&say_hello_reducer::SayHelloArgs {}),
             _ => unreachable!(),
         }
     }
@@ -55,9 +36,7 @@ impl __sdk::Reducer for Reducer {
 #[derive(Default)]
 #[allow(non_snake_case)]
 #[doc(hidden)]
-pub struct DbUpdate {
-    person: __sdk::TableUpdate<Person>,
-}
+pub struct DbUpdate {}
 
 impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
     type Error = __sdk::Error;
@@ -65,10 +44,6 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_update in __sdk::transaction_update_iter_table_updates(raw) {
             match &table_update.table_name[..] {
-                "person" => db_update
-                    .person
-                    .append(person_table::parse_table_update(table_update)?),
-
                 unknown => {
                     return Err(__sdk::InternalError::unknown_name(
                         "table",
@@ -94,17 +69,12 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
-        diff.person = cache.apply_diff_to_table::<Person>("person", &self.person);
-
         diff
     }
     fn parse_initial_rows(raw: __ws::v2::QueryRows) -> __sdk::Result<Self> {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
-                "person" => db_update
-                    .person
-                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 unknown => {
                     return Err(
                         __sdk::InternalError::unknown_name("table", unknown, "QueryRows").into(),
@@ -118,9 +88,6 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
-                "person" => db_update
-                    .person
-                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 unknown => {
                     return Err(
                         __sdk::InternalError::unknown_name("table", unknown, "QueryRows").into(),
@@ -136,7 +103,6 @@ impl __sdk::DbUpdate for DbUpdate {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
-    person: __sdk::TableAppliedDiff<'r, Person>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
 
@@ -150,7 +116,6 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         event: &EventContext,
         callbacks: &mut __sdk::DbCallbacks<RemoteModule>,
     ) {
-        callbacks.invoke_table_row_callbacks::<Person>("person", &self.person, event);
     }
 }
 
@@ -794,8 +759,6 @@ impl __sdk::SpacetimeModule for RemoteModule {
     type SubscriptionHandle = SubscriptionHandle;
     type QueryBuilder = __sdk::QueryBuilder;
 
-    fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
-        person_table::register_table(client_cache);
-    }
-    const ALL_TABLE_NAMES: &'static [&'static str] = &["person"];
+    fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {}
+    const ALL_TABLE_NAMES: &'static [&'static str] = &[];
 }

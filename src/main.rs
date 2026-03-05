@@ -1,9 +1,8 @@
 mod module_bindings;
 use module_bindings::*;
 
-use spacetimedb_sdk::{DbContext, Table};
-
-fn main() {
+#[tokio::main]
+async fn main() {
     // The URI of the SpacetimeDB instance hosting our chat module.
     let host: String =
         dotenv::var("SPACETIMEDB_HOST").unwrap_or("http://localhost:3000".to_string());
@@ -25,22 +24,5 @@ fn main() {
         .build()
         .expect("Failed to connect");
 
-    conn.run_threaded();
-
-    // Subscribe to the person table
-    conn.subscription_builder()
-        .on_applied(|_ctx| println!("Subscripted to the person table"))
-        .on_error(|_ctx, e| eprintln!("There was an error when subscring to the person table: {e}"))
-        .add_query(|q| q.from.person())
-        .subscribe();
-
-    // Register a callback for when rows are inserted into the person table
-    conn.db().person().on_insert(|_ctx, person| {
-        println!("New person: {}", person.name);
-    });
-
-    // Keep the main thread alive so the connection stays open
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
+    conn.run_async().await.unwrap();
 }
