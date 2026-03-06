@@ -6,6 +6,18 @@
 #![allow(unused, clippy::all)]
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
+pub mod create_project_reducer;
+pub mod file_kind_type;
+pub mod file_type;
+pub mod my_projects_table;
+pub mod project_type;
+
+pub use create_project_reducer::create_project;
+pub use file_kind_type::FileKind;
+pub use file_type::File;
+pub use my_projects_table::*;
+pub use project_type::Project;
+
 #[derive(Clone, PartialEq, Debug)]
 
 /// One of the reducers defined by this module.
@@ -13,7 +25,9 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 /// Contained within a [`__sdk::ReducerEvent`] in [`EventContext`]s for reducer events
 /// to indicate which reducer caused the event.
 
-pub enum Reducer {}
+pub enum Reducer {
+    CreateProject { name: String },
+}
 
 impl __sdk::InModule for Reducer {
     type Module = RemoteModule;
@@ -22,12 +36,18 @@ impl __sdk::InModule for Reducer {
 impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
+            Reducer::CreateProject { .. } => "create_project",
             _ => unreachable!(),
         }
     }
     #[allow(clippy::clone_on_copy)]
     fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
         match self {
+            Reducer::CreateProject { name } => {
+                __sats::bsatn::to_vec(&create_project_reducer::CreateProjectArgs {
+                    name: name.clone(),
+                })
+            }
             _ => unreachable!(),
         }
     }
@@ -36,7 +56,9 @@ impl __sdk::Reducer for Reducer {
 #[derive(Default)]
 #[allow(non_snake_case)]
 #[doc(hidden)]
-pub struct DbUpdate {}
+pub struct DbUpdate {
+    my_projects: __sdk::TableUpdate<Project>,
+}
 
 impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
     type Error = __sdk::Error;
@@ -44,6 +66,10 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_update in __sdk::transaction_update_iter_table_updates(raw) {
             match &table_update.table_name[..] {
+                "my_projects" => db_update
+                    .my_projects
+                    .append(my_projects_table::parse_table_update(table_update)?),
+
                 unknown => {
                     return Err(__sdk::InternalError::unknown_name(
                         "table",
@@ -69,12 +95,17 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
+        diff.my_projects = cache.apply_diff_to_table::<Project>("my_projects", &self.my_projects);
+
         diff
     }
     fn parse_initial_rows(raw: __ws::v2::QueryRows) -> __sdk::Result<Self> {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
+                "my_projects" => db_update
+                    .my_projects
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 unknown => {
                     return Err(
                         __sdk::InternalError::unknown_name("table", unknown, "QueryRows").into(),
@@ -88,6 +119,9 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
+                "my_projects" => db_update
+                    .my_projects
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 unknown => {
                     return Err(
                         __sdk::InternalError::unknown_name("table", unknown, "QueryRows").into(),
@@ -103,6 +137,7 @@ impl __sdk::DbUpdate for DbUpdate {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
+    my_projects: __sdk::TableAppliedDiff<'r, Project>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
 
@@ -116,6 +151,7 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         event: &EventContext,
         callbacks: &mut __sdk::DbCallbacks<RemoteModule>,
     ) {
+        callbacks.invoke_table_row_callbacks::<Project>("my_projects", &self.my_projects, event);
     }
 }
 
@@ -759,6 +795,8 @@ impl __sdk::SpacetimeModule for RemoteModule {
     type SubscriptionHandle = SubscriptionHandle;
     type QueryBuilder = __sdk::QueryBuilder;
 
-    fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {}
-    const ALL_TABLE_NAMES: &'static [&'static str] = &[];
+    fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
+        my_projects_table::register_table(client_cache);
+    }
+    const ALL_TABLE_NAMES: &'static [&'static str] = &["my_projects"];
 }
