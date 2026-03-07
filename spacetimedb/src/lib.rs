@@ -44,9 +44,10 @@ fn identity_disconnected(ctx: &ReducerContext) {
 }
 
 #[spacetimedb::view(accessor = my_projects, public)]
-fn my_projects(ctx: &ViewContext) -> impl Query<Project> {
+fn my_projects(ctx: &ViewContext) -> Vec<Project> {
     // TODO: Also show projects where sender is a guest
-    ctx.from.project().r#where(|p| p.author.eq(ctx.sender()))
+    log::info!("User {} is querying their projects", ctx.sender().to_hex());
+    ctx.db.project().author().filter(ctx.sender()).collect()
 }
 
 #[spacetimedb::reducer]
@@ -57,7 +58,7 @@ fn create_project(ctx: &ReducerContext, name: String) -> anyhow::Result<()> {
     ctx.db.project().insert(Project {
         id,
         name: name.to_string(),
-        author: ctx.identity(),
+        author: ctx.sender(),
         guests: Vec::new(),
     });
     log::info!(
