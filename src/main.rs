@@ -32,36 +32,53 @@ struct CreateArgs {
     project_dir: PathBuf,
 }
 
-fn read_files_in_dir_inner(
-    path: impl AsRef<Path> + Send + 'static,
-    level: usize,
-) -> anyhow::Result<()> {
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let indent = "   ".repeat(level);
-        let filename = entry.file_name().into_string().unwrap();
-
-        if entry.path().is_dir() {
-            println!("{}└──{}/", indent, filename);
-            read_files_in_dir_inner(entry.path(), level + 1)?;
-        } else {
-            println!("{}└──{}", indent, filename);
-        }
-    }
-
-    Ok(())
-}
-
-fn read_files_in_dir(path: impl AsRef<Path> + Send + 'static) -> anyhow::Result<()> {
-    read_files_in_dir_inner(path, 0)
-}
-
 fn creds_store() -> credentials::File {
     credentials::File::new("babygit")
 }
 
 fn one_shot_lock<T>() -> Arc<OnceLock<T>> {
     Arc::new(OnceLock::new())
+}
+
+fn upload_project_dir(
+    conn: &DbConnection,
+    uuid_ctx: &uuid::ContextV7,
+    project_id: spacetimedb_sdk::Uuid,
+    dir_path: impl AsRef<Path>,
+    dir_id: Option<spacetimedb_sdk::Uuid>,
+) -> anyhow::Result<usize> {
+    let mut total_file_count = 0usize;
+
+    for entry in fs::read_dir(dir_path)? {
+        let entry = entry?;
+        let path = entry.path();
+        let path_str = path
+            .to_str()
+            .ok_or(anyhow::anyhow!("Invalid path"))?
+            .to_owned();
+
+        let file_id = {
+            let ts = uuid::Timestamp::now(uuid_ctx);
+            let uuid = uuid::Uuid::new_v7(ts);
+            spacetimedb_sdk::Uuid::from_u128(uuid.as_u128())
+        };
+
+        let (kind, file_count) = if entry.path().is_dir() {
+            let scanned_files =
+                upload_project_dir(conn, uuid_ctx, project_id, &path, Some(file_id))?;
+            (FileKind::Directory, scanned_files)
+        } else {
+            let contents = fs::read(&path)?;
+            (FileKind::File(contents), 1usize)
+        };
+
+        conn.reducers
+            .add_file_to_project(file_id, project_id, path_str, kind, dir_id)?;
+        println!("Uploaded {:?}", path);
+        total_file_count += file_count;
+    }
+
+    Ok(total_file_count)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -92,18 +109,25 @@ fn main() -> anyhow::Result<()> {
     // Keep connection running in the backgroun
     let conn_handle = conn.run_threaded();
 
-    // Read directory
-    // let current_dir = std::env::current_dir()?;
-    // read_files_in_dir(current_dir)?;
-
     match cli.command {
         CliCommand::Create(args) => {
+            let uuid_ctx = uuid::ContextV7::new();
+
             // Create project entry
-            conn.reducers.create_project(args.name)?;
+            let project_id = {
+                let ts = uuid::Timestamp::now(&uuid_ctx);
+                let uuid = uuid::Uuid::new_v7(ts);
+                spacetimedb_sdk::Uuid::from_u128(uuid.as_u128())
+            };
+            conn.reducers.create_project(project_id, args.name)?;
 
-            // TODO: Upload files
-
-            println!("Project created successfully!");
+            // Upload project files
+            let files_uploaded =
+                upload_project_dir(&conn, &uuid_ctx, project_id, args.project_dir, None)?;
+            println!(
+                "Project created successfully! Uploaded {} file(s)",
+                files_uploaded
+            );
         }
         CliCommand::List => {
             let lock = one_shot_lock();

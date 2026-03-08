@@ -7,12 +7,16 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 #[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug)]
 #[sats(crate = __lib)]
 pub(super) struct CreateProjectArgs {
+    pub id: __sdk::Uuid,
     pub name: String,
 }
 
 impl From<CreateProjectArgs> for super::Reducer {
     fn from(args: CreateProjectArgs) -> Self {
-        Self::CreateProject { name: args.name }
+        Self::CreateProject {
+            id: args.id,
+            name: args.name,
+        }
     }
 }
 
@@ -31,8 +35,8 @@ pub trait create_project {
     /// The reducer will run asynchronously in the future,
     ///  and this method provides no way to listen for its completion status.
     /// /// Use [`create_project:create_project_then`] to run a callback after the reducer completes.
-    fn create_project(&self, name: String) -> __sdk::Result<()> {
-        self.create_project_then(name, |_, _| {})
+    fn create_project(&self, id: __sdk::Uuid, name: String) -> __sdk::Result<()> {
+        self.create_project_then(id, name, |_, _| {})
     }
 
     /// Request that the remote module invoke the reducer `create_project` to run as soon as possible,
@@ -43,6 +47,7 @@ pub trait create_project {
     ///  and its status can be observed with the `callback`.
     fn create_project_then(
         &self,
+        id: __sdk::Uuid,
         name: String,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
@@ -54,6 +59,7 @@ pub trait create_project {
 impl create_project for super::RemoteReducers {
     fn create_project_then(
         &self,
+        id: __sdk::Uuid,
         name: String,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
@@ -61,6 +67,6 @@ impl create_project for super::RemoteReducers {
             + 'static,
     ) -> __sdk::Result<()> {
         self.imp
-            .invoke_reducer_with_callback(CreateProjectArgs { name }, callback)
+            .invoke_reducer_with_callback(CreateProjectArgs { id, name }, callback)
     }
 }

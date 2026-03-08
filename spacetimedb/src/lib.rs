@@ -1,4 +1,4 @@
-use spacetimedb::{Identity, Query, ReducerContext, SpacetimeType, Table, Uuid, ViewContext};
+use spacetimedb::{Identity, ReducerContext, SpacetimeType, Table, Uuid, ViewContext};
 
 #[derive(SpacetimeType)]
 enum FileKind {
@@ -22,7 +22,7 @@ struct File {
     id: Uuid,
     path: String,
     kind: FileKind,
-    parent_id: Uuid,
+    parent_id: Option<Uuid>,
     project_id: Uuid,
 }
 
@@ -51,9 +51,8 @@ fn my_projects(ctx: &ViewContext) -> Vec<Project> {
 }
 
 #[spacetimedb::reducer]
-fn create_project(ctx: &ReducerContext, name: String) -> anyhow::Result<()> {
+fn create_project(ctx: &ReducerContext, id: Uuid, name: String) -> anyhow::Result<()> {
     let name = validate_project_name(&name)?;
-    let id = ctx.new_uuid_v7()?;
 
     ctx.db.project().insert(Project {
         id,
@@ -67,6 +66,27 @@ fn create_project(ctx: &ReducerContext, name: String) -> anyhow::Result<()> {
         &name
     );
 
+    Ok(())
+}
+
+#[spacetimedb::reducer]
+fn add_file_to_project(
+    ctx: &ReducerContext,
+    id: Uuid,
+    project_id: Uuid,
+    path: String,
+    kind: FileKind,
+    parent_id: Option<Uuid>,
+) -> anyhow::Result<()> {
+    let path = path; // TODO: validate
+
+    ctx.db.file().insert(File {
+        id,
+        path,
+        kind,
+        parent_id,
+        project_id,
+    });
     Ok(())
 }
 

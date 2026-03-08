@@ -6,12 +6,14 @@
 #![allow(unused, clippy::all)]
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
+pub mod add_file_to_project_reducer;
 pub mod create_project_reducer;
 pub mod file_kind_type;
 pub mod file_type;
 pub mod my_projects_table;
 pub mod project_type;
 
+pub use add_file_to_project_reducer::add_file_to_project;
 pub use create_project_reducer::create_project;
 pub use file_kind_type::FileKind;
 pub use file_type::File;
@@ -26,7 +28,17 @@ pub use project_type::Project;
 /// to indicate which reducer caused the event.
 
 pub enum Reducer {
-    CreateProject { name: String },
+    AddFileToProject {
+        id: __sdk::Uuid,
+        project_id: __sdk::Uuid,
+        path: String,
+        kind: FileKind,
+        parent_id: Option<__sdk::Uuid>,
+    },
+    CreateProject {
+        id: __sdk::Uuid,
+        name: String,
+    },
 }
 
 impl __sdk::InModule for Reducer {
@@ -36,6 +48,7 @@ impl __sdk::InModule for Reducer {
 impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
+            Reducer::AddFileToProject { .. } => "add_file_to_project",
             Reducer::CreateProject { .. } => "create_project",
             _ => unreachable!(),
         }
@@ -43,8 +56,22 @@ impl __sdk::Reducer for Reducer {
     #[allow(clippy::clone_on_copy)]
     fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
         match self {
-            Reducer::CreateProject { name } => {
+            Reducer::AddFileToProject {
+                id,
+                project_id,
+                path,
+                kind,
+                parent_id,
+            } => __sats::bsatn::to_vec(&add_file_to_project_reducer::AddFileToProjectArgs {
+                id: id.clone(),
+                project_id: project_id.clone(),
+                path: path.clone(),
+                kind: kind.clone(),
+                parent_id: parent_id.clone(),
+            }),
+            Reducer::CreateProject { id, name } => {
                 __sats::bsatn::to_vec(&create_project_reducer::CreateProjectArgs {
+                    id: id.clone(),
                     name: name.clone(),
                 })
             }

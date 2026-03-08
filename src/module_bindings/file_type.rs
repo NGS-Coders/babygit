@@ -12,7 +12,7 @@ pub struct File {
     pub id: __sdk::Uuid,
     pub path: String,
     pub kind: FileKind,
-    pub parent_id: __sdk::Uuid,
+    pub parent_id: Option<__sdk::Uuid>,
     pub project_id: __sdk::Uuid,
 }
 
@@ -27,7 +27,7 @@ pub struct FileCols {
     pub id: __sdk::__query_builder::Col<File, __sdk::Uuid>,
     pub path: __sdk::__query_builder::Col<File, String>,
     pub kind: __sdk::__query_builder::Col<File, FileKind>,
-    pub parent_id: __sdk::__query_builder::Col<File, __sdk::Uuid>,
+    pub parent_id: __sdk::__query_builder::Col<File, Option<__sdk::Uuid>>,
     pub project_id: __sdk::__query_builder::Col<File, __sdk::Uuid>,
 }
 
