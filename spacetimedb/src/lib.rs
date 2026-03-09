@@ -99,7 +99,7 @@ fn validate_project_name(text: &str) -> anyhow::Result<&str> {
     );
     anyhow::ensure!(
         trimmed.is_ascii(),
-        "Project name cannot contain non-ASCII characters"
+        "Project name cannot contain non-ASCII characters because reasons"
     );
 
     Ok(trimmed)
