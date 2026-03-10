@@ -7,9 +7,11 @@ use std::{
 };
 
 use clap::{Args, Parser, Subcommand};
-use spacetimedb_sdk::{credentials, DbContext, Table};
+use spacetimedb_sdk::{credentials, DbContext, Identity, Table};
 
 use module_bindings::*;
+
+static IDENTITY_LOCK: OnceLock<Identity> = OnceLock::new();
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -20,7 +22,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CliCommand {
+    Me,
     Create(CreateArgs),
+    AddGuest(AddGuestArgs),
     List,
 }
 
@@ -30,6 +34,12 @@ struct CreateArgs {
 
     #[arg(default_value = ".")]
     project_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct AddGuestArgs {
+    project_id: uuid::Uuid,
+    guest_id: Identity,
 }
 
 fn creds_store() -> credentials::File {
@@ -95,10 +105,11 @@ fn main() -> anyhow::Result<()> {
         .with_database_name(db_name)
         .with_uri(host)
         .with_token(creds_store().load()?)
-        .on_connect(|_, _, token| {
+        .on_connect(|_, identity, token| {
             if let Err(e) = creds_store().save(token) {
                 panic!("Failed to save credentials: {:?}", e);
             }
+            _ = IDENTITY_LOCK.set(identity);
         })
         .on_connect_error(|_ctx, e| {
             eprintln!("Connection error: {:?}", e);
@@ -110,6 +121,11 @@ fn main() -> anyhow::Result<()> {
     let conn_handle = conn.run_threaded();
 
     match cli.command {
+        CliCommand::Me => {
+            let identity = IDENTITY_LOCK.wait();
+            println!("User ID: {}", identity);
+        }
+
         CliCommand::Create(args) => {
             let uuid_ctx = uuid::ContextV7::new();
 
@@ -129,6 +145,23 @@ fn main() -> anyhow::Result<()> {
                 files_uploaded
             );
         }
+
+        CliCommand::AddGuest(args) => {
+            conn.reducers.add_guest_to_project_then(
+                spacetimedb_sdk::Uuid::from_u128(args.project_id.as_u128()),
+                args.guest_id,
+                |_, result| match result {
+                    Ok(res) => match res {
+                        Ok(()) => println!("Added guest to project!"),
+                        Err(e) => eprintln!("Error: {}", e),
+                    },
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                    }
+                },
+            )?;
+        }
+
         CliCommand::List => {
             let lock = one_shot_lock();
 

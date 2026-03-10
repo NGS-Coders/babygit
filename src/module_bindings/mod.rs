@@ -7,6 +7,7 @@
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 pub mod add_file_to_project_reducer;
+pub mod add_guest_to_project_reducer;
 pub mod create_project_reducer;
 pub mod file_kind_type;
 pub mod file_type;
@@ -14,6 +15,7 @@ pub mod my_projects_table;
 pub mod project_type;
 
 pub use add_file_to_project_reducer::add_file_to_project;
+pub use add_guest_to_project_reducer::add_guest_to_project;
 pub use create_project_reducer::create_project;
 pub use file_kind_type::FileKind;
 pub use file_type::File;
@@ -35,6 +37,10 @@ pub enum Reducer {
         kind: FileKind,
         parent_id: Option<__sdk::Uuid>,
     },
+    AddGuestToProject {
+        project_id: __sdk::Uuid,
+        guest_id: __sdk::Identity,
+    },
     CreateProject {
         id: __sdk::Uuid,
         name: String,
@@ -49,6 +55,7 @@ impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
             Reducer::AddFileToProject { .. } => "add_file_to_project",
+            Reducer::AddGuestToProject { .. } => "add_guest_to_project",
             Reducer::CreateProject { .. } => "create_project",
             _ => unreachable!(),
         }
@@ -68,6 +75,13 @@ impl __sdk::Reducer for Reducer {
                 path: path.clone(),
                 kind: kind.clone(),
                 parent_id: parent_id.clone(),
+            }),
+            Reducer::AddGuestToProject {
+                project_id,
+                guest_id,
+            } => __sats::bsatn::to_vec(&add_guest_to_project_reducer::AddGuestToProjectArgs {
+                project_id: project_id.clone(),
+                guest_id: guest_id.clone(),
             }),
             Reducer::CreateProject { id, name } => {
                 __sats::bsatn::to_vec(&create_project_reducer::CreateProjectArgs {

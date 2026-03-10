@@ -7,13 +7,34 @@ enum FileKind {
 }
 
 #[spacetimedb::table(accessor = project)]
+#[derive(Clone)]
 struct Project {
     #[primary_key]
     id: Uuid,
+
     name: String,
+
     #[index(btree)]
     author: Identity,
+
     guests: Vec<Identity>,
+
+    // Need this field because there isn't any way to query every project within reducers otherwise
+    #[default(0)]
+    #[index(btree)]
+    common: u8,
+}
+
+impl Project {
+    fn new(id: Uuid, name: String, author: Identity) -> Self {
+        Self {
+            id,
+            name,
+            author,
+            guests: Vec::new(),
+            common: 0, // this is crucial to query all projects
+        }
+    }
 }
 
 #[spacetimedb::table(accessor = file)]
@@ -45,26 +66,58 @@ fn identity_disconnected(ctx: &ReducerContext) {
 
 #[spacetimedb::view(accessor = my_projects, public)]
 fn my_projects(ctx: &ViewContext) -> Vec<Project> {
-    // TODO: Also show projects where sender is a guest
     log::info!("User {} is querying their projects", ctx.sender().to_hex());
-    ctx.db.project().author().filter(ctx.sender()).collect()
+
+    let all_projects: Vec<Project> = ctx.db.project().common().filter(0u8).collect();
+    all_projects
+        .iter()
+        .filter(|p| p.author == ctx.sender() || p.guests.contains(&ctx.sender()))
+        .map(|p| p.clone())
+        .collect()
 }
 
 #[spacetimedb::reducer]
 fn create_project(ctx: &ReducerContext, id: Uuid, name: String) -> anyhow::Result<()> {
     let name = validate_project_name(&name)?;
 
-    ctx.db.project().insert(Project {
-        id,
-        name: name.to_string(),
-        author: ctx.sender(),
-        guests: Vec::new(),
-    });
+    ctx.db
+        .project()
+        .insert(Project::new(id, name.to_owned(), ctx.sender()));
     log::info!(
         "User {} is creating a new project {}",
-        ctx.identity().to_hex(),
+        ctx.sender().to_hex(),
         &name
     );
+
+    Ok(())
+}
+
+#[spacetimedb::reducer]
+fn add_guest_to_project(
+    ctx: &ReducerContext,
+    project_id: Uuid,
+    guest_id: Identity,
+) -> anyhow::Result<()> {
+    // Fetch project
+    let mut project = ctx
+        .db
+        .project()
+        .id()
+        .find(project_id)
+        .ok_or(anyhow::anyhow!("Project not found"))?;
+
+    // Check ownership
+    anyhow::ensure!(project.author == ctx.sender(), "Project not found");
+
+    // Check if guest is already part of this project
+    anyhow::ensure!(
+        project.author != guest_id && !project.guests.contains(&guest_id),
+        "This person is already part of this project"
+    );
+
+    // Add guest to project
+    project.guests.push(guest_id);
+    ctx.db.project().id().update(project);
 
     Ok(())
 }

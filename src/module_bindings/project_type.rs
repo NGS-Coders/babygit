@@ -11,6 +11,7 @@ pub struct Project {
     pub name: String,
     pub author: __sdk::Identity,
     pub guests: Vec<__sdk::Identity>,
+    pub common: u8,
 }
 
 impl __sdk::InModule for Project {
@@ -25,6 +26,7 @@ pub struct ProjectCols {
     pub name: __sdk::__query_builder::Col<Project, String>,
     pub author: __sdk::__query_builder::Col<Project, __sdk::Identity>,
     pub guests: __sdk::__query_builder::Col<Project, Vec<__sdk::Identity>>,
+    pub common: __sdk::__query_builder::Col<Project, u8>,
 }
 
 impl __sdk::__query_builder::HasCols for Project {
@@ -35,6 +37,7 @@ impl __sdk::__query_builder::HasCols for Project {
             name: __sdk::__query_builder::Col::new(table_name, "name"),
             author: __sdk::__query_builder::Col::new(table_name, "author"),
             guests: __sdk::__query_builder::Col::new(table_name, "guests"),
+            common: __sdk::__query_builder::Col::new(table_name, "common"),
         }
     }
 }
@@ -44,6 +47,7 @@ impl __sdk::__query_builder::HasCols for Project {
 /// Provides typed access to indexed columns for query building.
 pub struct ProjectIxCols {
     pub author: __sdk::__query_builder::IxCol<Project, __sdk::Identity>,
+    pub common: __sdk::__query_builder::IxCol<Project, u8>,
     pub id: __sdk::__query_builder::IxCol<Project, __sdk::Uuid>,
 }
 
@@ -52,6 +56,7 @@ impl __sdk::__query_builder::HasIxCols for Project {
     fn ix_cols(table_name: &'static str) -> Self::IxCols {
         ProjectIxCols {
             author: __sdk::__query_builder::IxCol::new(table_name, "author"),
+            common: __sdk::__query_builder::IxCol::new(table_name, "common"),
             id: __sdk::__query_builder::IxCol::new(table_name, "id"),
         }
     }
