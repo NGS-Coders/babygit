@@ -10,6 +10,7 @@ pub mod add_file_to_project_reducer;
 pub mod add_guest_to_project_reducer;
 pub mod create_project_reducer;
 pub mod file_kind_type;
+pub mod file_table;
 pub mod file_type;
 pub mod my_projects_table;
 pub mod project_type;
@@ -18,6 +19,7 @@ pub use add_file_to_project_reducer::add_file_to_project;
 pub use add_guest_to_project_reducer::add_guest_to_project;
 pub use create_project_reducer::create_project;
 pub use file_kind_type::FileKind;
+pub use file_table::*;
 pub use file_type::File;
 pub use my_projects_table::*;
 pub use project_type::Project;
@@ -98,6 +100,7 @@ impl __sdk::Reducer for Reducer {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct DbUpdate {
+    file: __sdk::TableUpdate<File>,
     my_projects: __sdk::TableUpdate<Project>,
 }
 
@@ -107,6 +110,9 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_update in __sdk::transaction_update_iter_table_updates(raw) {
             match &table_update.table_name[..] {
+                "file" => db_update
+                    .file
+                    .append(file_table::parse_table_update(table_update)?),
                 "my_projects" => db_update
                     .my_projects
                     .append(my_projects_table::parse_table_update(table_update)?),
@@ -136,6 +142,9 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
+        diff.file = cache
+            .apply_diff_to_table::<File>("file", &self.file)
+            .with_updates_by_pk(|row| &row.id);
         diff.my_projects = cache.apply_diff_to_table::<Project>("my_projects", &self.my_projects);
 
         diff
@@ -144,6 +153,9 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
+                "file" => db_update
+                    .file
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "my_projects" => db_update
                     .my_projects
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
@@ -160,6 +172,9 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
+                "file" => db_update
+                    .file
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "my_projects" => db_update
                     .my_projects
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -178,6 +193,7 @@ impl __sdk::DbUpdate for DbUpdate {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
+    file: __sdk::TableAppliedDiff<'r, File>,
     my_projects: __sdk::TableAppliedDiff<'r, Project>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
@@ -192,6 +208,7 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         event: &EventContext,
         callbacks: &mut __sdk::DbCallbacks<RemoteModule>,
     ) {
+        callbacks.invoke_table_row_callbacks::<File>("file", &self.file, event);
         callbacks.invoke_table_row_callbacks::<Project>("my_projects", &self.my_projects, event);
     }
 }
@@ -837,7 +854,8 @@ impl __sdk::SpacetimeModule for RemoteModule {
     type QueryBuilder = __sdk::QueryBuilder;
 
     fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
+        file_table::register_table(client_cache);
         my_projects_table::register_table(client_cache);
     }
-    const ALL_TABLE_NAMES: &'static [&'static str] = &["my_projects"];
+    const ALL_TABLE_NAMES: &'static [&'static str] = &["file", "my_projects"];
 }

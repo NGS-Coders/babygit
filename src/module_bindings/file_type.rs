@@ -13,7 +13,7 @@ pub struct File {
     pub path: String,
     pub kind: FileKind,
     pub parent_id: Option<__sdk::Uuid>,
-    pub project_id: __sdk::Uuid,
+    pub project_id: u128,
 }
 
 impl __sdk::InModule for File {
@@ -28,7 +28,7 @@ pub struct FileCols {
     pub path: __sdk::__query_builder::Col<File, String>,
     pub kind: __sdk::__query_builder::Col<File, FileKind>,
     pub parent_id: __sdk::__query_builder::Col<File, Option<__sdk::Uuid>>,
-    pub project_id: __sdk::__query_builder::Col<File, __sdk::Uuid>,
+    pub project_id: __sdk::__query_builder::Col<File, u128>,
 }
 
 impl __sdk::__query_builder::HasCols for File {

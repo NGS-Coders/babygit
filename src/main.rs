@@ -26,20 +26,31 @@ enum CliCommand {
     Create(CreateArgs),
     AddGuest(AddGuestArgs),
     List,
+    Work(WorkArgs),
 }
 
 #[derive(Args)]
 struct CreateArgs {
     name: String,
 
-    #[arg(default_value = ".")]
+    #[arg(short, long, default_value = ".")]
     project_dir: PathBuf,
 }
 
 #[derive(Args)]
 struct AddGuestArgs {
-    project_id: uuid::Uuid,
     guest_id: Identity,
+
+    #[arg(short, long)]
+    project_id: uuid::Uuid,
+}
+
+#[derive(Args)]
+struct WorkArgs {
+    project_id: uuid::Uuid,
+
+    #[arg(short, long, default_value = ".")]
+    project_dir: PathBuf,
 }
 
 fn creds_store() -> credentials::File {
@@ -179,6 +190,41 @@ fn main() -> anyhow::Result<()> {
             projects.iter().enumerate().for_each(|(i, p)| {
                 println!("{}) {} - {}", i + 1, p.id.to_string(), p.name);
             });
+        }
+
+        CliCommand::Work(args) => {
+            // Callback needs to be registered before creating subscriptions
+            conn.db.file().on_insert(move |_, file| {
+                let file_path = args.project_dir.join(&file.path);
+
+                match file.kind {
+                    FileKind::File(ref contents) => {
+                        println!("File received: {:?}", file.path);
+
+                        if let Some(parent) = file_path.parent() {
+                            fs::create_dir_all(parent).unwrap();
+                        }
+                        fs::write(file_path, contents).unwrap();
+                    }
+                    FileKind::Directory => {
+                        println!("Directory received: {:?}", file.path);
+                        fs::create_dir_all(file_path).unwrap();
+                    }
+                }
+            });
+
+            conn.subscription_builder()
+                .add_query(|q| {
+                    q.from
+                        .file()
+                        .filter(|f| f.project_id.eq(args.project_id.as_u128()))
+                })
+                .subscribe();
+
+            loop {
+                // Keep connection alive
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
         }
     }
 

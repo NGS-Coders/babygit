@@ -37,14 +37,14 @@ impl Project {
     }
 }
 
-#[spacetimedb::table(accessor = file)]
+#[spacetimedb::table(accessor = file, public)]
 struct File {
     #[primary_key]
     id: Uuid,
     path: String,
     kind: FileKind,
     parent_id: Option<Uuid>,
-    project_id: Uuid,
+    project_id: u128, // UUID stored as u128
 }
 
 #[spacetimedb::reducer(init)]
@@ -138,7 +138,7 @@ fn add_file_to_project(
         path,
         kind,
         parent_id,
-        project_id,
+        project_id: project_id.as_u128(),
     });
     Ok(())
 }
