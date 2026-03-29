@@ -311,7 +311,8 @@ fn main() -> anyhow::Result<()> {
                                 if file_contents.is_err() {
                                     return;
                                 }
-                                let file_hash = crc32fast::hash(&file_contents.unwrap());
+                                let file_contents = file_contents.unwrap();
+                                let file_hash = crc32fast::hash(&file_contents);
 
                                 let file_node = {
                                     let tree = tree_clone.read().unwrap();
@@ -332,17 +333,22 @@ fn main() -> anyhow::Result<()> {
                                     // println!("Skipping file change:\t{}", path.display());
                                     return;
                                 }
-
-                                // Update file hash in tree
-                                file_node.hash = Some(file_hash);
-
                                 println!(
                                     "File changed:\t{:?}\n\t\t{} -> {:?}",
                                     path.display(),
                                     file_hash,
                                     stored_hash
                                 );
-                                // TODO: sync file contents to db
+
+                                // Sync changes to tree and db
+                                file_node.hash = Some(file_hash);
+                                conn.reducers
+                                    .update_file_contents(
+                                        spacetimedb_sdk::Uuid::from_u128(file_node.id.as_u128()),
+                                        file_hash,
+                                        file_contents,
+                                    )
+                                    .unwrap();
                             }
                             EventKind::Remove(_) => {
                                 println!("File deleted:\t{:?}", path.display());

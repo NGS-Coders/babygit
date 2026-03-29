@@ -149,6 +149,29 @@ fn add_file_to_project(
     Ok(())
 }
 
+#[spacetimedb::reducer]
+fn update_file_contents(
+    ctx: &ReducerContext,
+    id: Uuid,
+    hash: u32,
+    data: Vec<u8>,
+) -> anyhow::Result<()> {
+    let file = ctx.db.file().id().find(id);
+
+    if let Some(mut file) = file {
+        anyhow::ensure!(
+            matches!(file.kind, FileKind::File(_)),
+            "This file is a directory"
+        );
+
+        file.kind = FileKind::File(FileContents { hash, data });
+        ctx.db.file().id().update(file);
+        Ok(())
+    } else {
+        anyhow::bail!("This file doesn't exist")
+    }
+}
+
 fn validate_project_name(text: &str) -> anyhow::Result<&str> {
     let trimmed = text.trim();
     anyhow::ensure!(!trimmed.is_empty(), "Project name cannot be empty");

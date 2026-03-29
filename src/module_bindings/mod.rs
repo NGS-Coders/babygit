@@ -15,6 +15,7 @@ pub mod file_table;
 pub mod file_type;
 pub mod my_projects_table;
 pub mod project_type;
+pub mod update_file_contents_reducer;
 
 pub use add_file_to_project_reducer::add_file_to_project;
 pub use add_guest_to_project_reducer::add_guest_to_project;
@@ -25,6 +26,7 @@ pub use file_table::*;
 pub use file_type::File;
 pub use my_projects_table::*;
 pub use project_type::Project;
+pub use update_file_contents_reducer::update_file_contents;
 
 #[derive(Clone, PartialEq, Debug)]
 
@@ -49,6 +51,11 @@ pub enum Reducer {
         id: __sdk::Uuid,
         name: String,
     },
+    UpdateFileContents {
+        id: __sdk::Uuid,
+        hash: u32,
+        data: Vec<u8>,
+    },
 }
 
 impl __sdk::InModule for Reducer {
@@ -61,6 +68,7 @@ impl __sdk::Reducer for Reducer {
             Reducer::AddFileToProject { .. } => "add_file_to_project",
             Reducer::AddGuestToProject { .. } => "add_guest_to_project",
             Reducer::CreateProject { .. } => "create_project",
+            Reducer::UpdateFileContents { .. } => "update_file_contents",
             _ => unreachable!(),
         }
     }
@@ -91,6 +99,13 @@ impl __sdk::Reducer for Reducer {
                 __sats::bsatn::to_vec(&create_project_reducer::CreateProjectArgs {
                     id: id.clone(),
                     name: name.clone(),
+                })
+            }
+            Reducer::UpdateFileContents { id, hash, data } => {
+                __sats::bsatn::to_vec(&update_file_contents_reducer::UpdateFileContentsArgs {
+                    id: id.clone(),
+                    hash: hash.clone(),
+                    data: data.clone(),
                 })
             }
             _ => unreachable!(),
