@@ -1,12 +1,15 @@
 mod module_bindings;
 
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, RwLock},
+    time::Instant,
 };
 
 use clap::{Args, Parser, Subcommand};
+use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use spacetimedb_sdk::{credentials, DbContext, Identity, Table};
 
 use module_bindings::*;
@@ -193,13 +196,21 @@ fn main() -> anyhow::Result<()> {
         }
 
         CliCommand::Work(args) => {
+            let ignore = Arc::new(RwLock::new(HashMap::<PathBuf, Instant>::new()));
+
             // Callback needs to be registered before creating subscriptions
+            let project_dir = args.project_dir.clone();
+            let ignore_clone = ignore.clone();
             conn.db.file().on_insert(move |_, file| {
-                let file_path = args.project_dir.join(&file.path);
+                let file_path = project_dir.join(&file.path).canonicalize().unwrap();
+
+                let now = Instant::now();
+                let mut ignore = ignore_clone.write().unwrap();
+                ignore.insert(file_path.clone(), now);
 
                 match file.kind {
                     FileKind::File(ref contents) => {
-                        println!("File received: {:?}", file.path);
+                        println!("File received:\t{:?}", file_path);
 
                         if let Some(parent) = file_path.parent() {
                             fs::create_dir_all(parent).unwrap();
@@ -207,7 +218,8 @@ fn main() -> anyhow::Result<()> {
                         fs::write(file_path, contents).unwrap();
                     }
                     FileKind::Directory => {
-                        println!("Directory received: {:?}", file.path);
+                        println!("Directory received:\t{:?}", file.path);
+                        // TODO: store directory metadata in a `.baby` file
                         fs::create_dir_all(file_path).unwrap();
                     }
                 }
@@ -220,6 +232,42 @@ fn main() -> anyhow::Result<()> {
                         .filter(|f| f.project_id.eq(args.project_id.as_u128()))
                 })
                 .subscribe();
+
+            let mut watcher = RecommendedWatcher::new(
+                move |res: Result<notify::Event, notify::Error>| match res {
+                    Ok(event) => {
+                        let path = event.paths.first().unwrap();
+
+                        // Ignore file changes from syncing remote files
+                        let now = Instant::now();
+                        let ignore = ignore.read().unwrap();
+                        if let Some(ts) = ignore.get(path) {
+                            if now.duration_since(*ts).as_millis() < 25 {
+                                return;
+                            }
+                        }
+
+                        match event.kind {
+                            EventKind::Create(_) => {
+                                println!("Local file created:\t{:?}", path);
+                                // TODO: sync new file to db
+                            }
+                            EventKind::Modify(_) => {
+                                println!("Local file changed:\t{:?}", path);
+                                // TODO: sync file contents to db
+                            }
+                            EventKind::Remove(_) => {
+                                println!("Local file deleted:\t{:?}", path);
+                                // TODO: delete file from db
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(err) => eprintln!("Watch error: {:?}", err),
+                },
+                Config::default(),
+            )?;
+            watcher.watch(&args.project_dir, RecursiveMode::Recursive)?;
 
             loop {
                 // Keep connection alive

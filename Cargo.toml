@@ -10,5 +10,6 @@ exclude = ["spacetimedb"]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 dotenv = "0.15"
+notify = "8.2"
 spacetimedb-sdk = { version = "2.0" }
 uuid = { version = "1.22", features = ["v7"] }
