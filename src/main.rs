@@ -2,11 +2,9 @@ mod file_tree;
 mod module_bindings;
 
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, RwLock},
-    time::Instant,
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -225,35 +223,29 @@ fn main() -> anyhow::Result<()> {
         }
 
         CliCommand::Work(args) => {
+            let project_dir = args.project_dir.canonicalize()?;
+
             let tree = Arc::new(RwLock::new(FileTree::new(
                 args.project_id.clone(),
-                args.project_dir.canonicalize()?,
+                project_dir.clone(),
             )));
-
-            let ignore = Arc::new(RwLock::new(HashMap::<PathBuf, Instant>::new()));
 
             // Callback needs to be registered before creating subscriptions
             let tree_clone = tree.clone();
-            let ignore_clone = ignore.clone();
-            let project_dir = args.project_dir.clone();
+            let project_dir_clone = project_dir.clone();
             conn.db.file().on_insert(move |_, file| {
                 let tree = tree_clone.read().unwrap();
                 if !tree.is_ready() {
                     return;
                 }
 
-                let file_path = project_dir.join(&file.path);
+                let file_path = project_dir_clone.join(&file.path);
 
                 // TODO: Update file tree
 
-                // Update when this file was updated
-                let now = Instant::now();
-                let mut ignore = ignore_clone.write().unwrap();
-                ignore.insert(file.path.clone().into(), now);
-
                 match file.kind {
                     FileKind::File(ref contents) => {
-                        println!("File received:\t{:?}", file.path);
+                        println!("File received:\t{:?}", file_path.display());
 
                         if let Some(parent) = file_path.parent() {
                             fs::create_dir_all(parent).unwrap();
@@ -261,7 +253,7 @@ fn main() -> anyhow::Result<()> {
                         fs::write(file_path, &contents.data).unwrap();
                     }
                     FileKind::Directory => {
-                        println!("Dir received:\t{:?}", file.path);
+                        println!("Dir received:\t{:?}", file_path.display());
                         fs::create_dir_all(file_path).unwrap();
                     }
                 }
@@ -275,7 +267,14 @@ fn main() -> anyhow::Result<()> {
                     // Queue initial files for tree construction
                     ctx.db.file().iter().for_each(|file| {
                         let file_uuid = uuid::Uuid::from_u128(file.id.as_u128());
-                        tree.queue_file(file_uuid, &file.path).unwrap();
+
+                        match file.kind {
+                            FileKind::File(contents) => {
+                                tree.queue_file(file_uuid, Some(contents.hash), &file.path)
+                            }
+                            FileKind::Directory => tree.queue_file(file_uuid, None, &file.path),
+                        }
+                        .unwrap()
                     });
 
                     // Initial file rows have been received, begin building file tree
@@ -289,33 +288,64 @@ fn main() -> anyhow::Result<()> {
                 })
                 .subscribe();
 
-            let project_dir = args.project_dir.clone().canonicalize()?;
+            let project_dir_clone = project_dir.clone();
+            let tree_clone = tree.clone();
             let mut watcher = RecommendedWatcher::new(
                 move |res: Result<notify::Event, notify::Error>| match res {
                     Ok(event) => {
                         let path = event.paths.first().unwrap();
 
-                        // Ignore file changes from syncing remote files
-                        let now = Instant::now();
-                        let ignore = ignore.read().unwrap();
-                        let stripped_path = path.strip_prefix(&project_dir).unwrap();
-                        if let Some(ts) = ignore.get(stripped_path) {
-                            if now.duration_since(*ts).as_millis() < 25 {
-                                return;
-                            }
-                        }
-
                         match event.kind {
                             EventKind::Create(_) => {
-                                println!("Local file created:\t{:?}", path);
+                                println!("File created:\t{:?}", path.display());
                                 // TODO: sync new file to db
                             }
                             EventKind::Modify(_) => {
-                                println!("Local file changed:\t{:?}", path);
+                                // Skip if a directory was modified
+                                if path.is_dir() {
+                                    return;
+                                }
+
+                                let stripped_path = path.strip_prefix(&project_dir_clone).unwrap();
+                                let file_contents = fs::read(path);
+                                if file_contents.is_err() {
+                                    return;
+                                }
+                                let file_hash = crc32fast::hash(&file_contents.unwrap());
+
+                                let file_node = {
+                                    let tree = tree_clone.read().unwrap();
+                                    tree.get_file(stripped_path).unwrap()
+                                };
+                                if file_node.is_none() {
+                                    eprintln!("Not in tree:\t{}", path.display());
+                                    return;
+                                }
+                                let file_node = file_node.unwrap();
+                                let mut file_node = file_node.lock().unwrap();
+                                let stored_hash = file_node
+                                    .hash
+                                    .expect("Non-directory files MUST have a hash");
+
+                                // Ignore if file contents weren't changed
+                                if stored_hash == file_hash {
+                                    // println!("Skipping file change:\t{}", path.display());
+                                    return;
+                                }
+
+                                // Update file hash in tree
+                                file_node.hash = Some(file_hash);
+
+                                println!(
+                                    "File changed:\t{:?}\n\t\t{} -> {:?}",
+                                    path.display(),
+                                    file_hash,
+                                    stored_hash
+                                );
                                 // TODO: sync file contents to db
                             }
                             EventKind::Remove(_) => {
-                                println!("Local file deleted:\t{:?}", path);
+                                println!("File deleted:\t{:?}", path.display());
                                 // TODO: delete file from db
                             }
                             _ => {}
@@ -325,7 +355,7 @@ fn main() -> anyhow::Result<()> {
                 },
                 Config::default(),
             )?;
-            watcher.watch(&args.project_dir, RecursiveMode::Recursive)?;
+            watcher.watch(&project_dir, RecursiveMode::Recursive)?;
 
             loop {
                 // Keep connection alive
