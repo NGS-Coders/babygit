@@ -1,3 +1,4 @@
+mod file_tree;
 mod module_bindings;
 
 use std::{
@@ -12,6 +13,7 @@ use clap::{Args, Parser, Subcommand};
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use spacetimedb_sdk::{credentials, DbContext, Identity, Table};
 
+use file_tree::FileTree;
 use module_bindings::*;
 
 static IDENTITY_LOCK: OnceLock<Identity> = OnceLock::new();
@@ -68,6 +70,7 @@ fn upload_project_dir(
     conn: &DbConnection,
     uuid_ctx: &uuid::ContextV7,
     project_id: spacetimedb_sdk::Uuid,
+    project_path: &Path,
     dir_path: impl AsRef<Path>,
     dir_id: Option<spacetimedb_sdk::Uuid>,
 ) -> anyhow::Result<usize> {
@@ -76,10 +79,15 @@ fn upload_project_dir(
     for entry in fs::read_dir(dir_path)? {
         let entry = entry?;
         let path = entry.path();
-        let path_str = path
-            .to_str()
-            .ok_or(anyhow::anyhow!("Invalid path"))?
-            .to_owned();
+
+        let path_str = {
+            let path_absolute = path.canonicalize()?;
+            path_absolute
+                .strip_prefix(project_path)?
+                .to_str()
+                .ok_or(anyhow::anyhow!("Invalid path"))?
+                .to_owned()
+        };
 
         let file_id = {
             let ts = uuid::Timestamp::now(uuid_ctx);
@@ -88,8 +96,14 @@ fn upload_project_dir(
         };
 
         let (kind, file_count) = if entry.path().is_dir() {
-            let scanned_files =
-                upload_project_dir(conn, uuid_ctx, project_id, &path, Some(file_id))?;
+            let scanned_files = upload_project_dir(
+                conn,
+                uuid_ctx,
+                project_id,
+                &project_path,
+                &path,
+                Some(file_id),
+            )?;
             (FileKind::Directory, scanned_files)
         } else {
             let contents = fs::read(&path)?;
@@ -152,8 +166,15 @@ fn main() -> anyhow::Result<()> {
             conn.reducers.create_project(project_id, args.name)?;
 
             // Upload project files
-            let files_uploaded =
-                upload_project_dir(&conn, &uuid_ctx, project_id, args.project_dir, None)?;
+            let project_dir = args.project_dir.canonicalize().unwrap();
+            let files_uploaded = upload_project_dir(
+                &conn,
+                &uuid_ctx,
+                project_id,
+                &project_dir,
+                &project_dir,
+                None,
+            )?;
             println!(
                 "Project created successfully! Uploaded {} file(s)",
                 files_uploaded
@@ -196,12 +217,20 @@ fn main() -> anyhow::Result<()> {
         }
 
         CliCommand::Work(args) => {
+            let mut tree = FileTree {
+                project_id: args.project_id.clone(),
+                root_dir: args.project_dir.canonicalize().unwrap(),
+                children: HashMap::new(),
+            };
+
             let ignore = Arc::new(RwLock::new(HashMap::<PathBuf, Instant>::new()));
 
             // Callback needs to be registered before creating subscriptions
             let project_dir = args.project_dir.clone();
             let ignore_clone = ignore.clone();
             conn.db.file().on_insert(move |_, file| {
+                // NOTE: Relies on rows being received in the same order they were inserted.
+
                 let file_path = project_dir.join(&file.path).canonicalize().unwrap();
 
                 let now = Instant::now();
@@ -210,7 +239,13 @@ fn main() -> anyhow::Result<()> {
 
                 match file.kind {
                     FileKind::File(ref contents) => {
-                        println!("File received:\t{:?}", file_path);
+                        println!("File received:\t{:?}", file.path);
+
+                        // Add file to file tree
+                        let file_uuid = uuid::Uuid::from_u128(file.id.as_u128());
+                        if let Err(e) = tree.add(file_uuid, &file.path) {
+                            eprintln!("Couldn't add file to file tree: {}", e);
+                        }
 
                         if let Some(parent) = file_path.parent() {
                             fs::create_dir_all(parent).unwrap();
@@ -218,8 +253,7 @@ fn main() -> anyhow::Result<()> {
                         fs::write(file_path, contents).unwrap();
                     }
                     FileKind::Directory => {
-                        println!("Directory received:\t{:?}", file.path);
-                        // TODO: store directory metadata in a `.baby` file
+                        println!("Dir received:\t{:?}", file.path);
                         fs::create_dir_all(file_path).unwrap();
                     }
                 }
