@@ -107,7 +107,15 @@ fn upload_project_dir(
             (FileKind::Directory, scanned_files)
         } else {
             let contents = fs::read(&path)?;
-            (FileKind::File(contents), 1usize)
+            let hash = crc32fast::hash(&contents);
+
+            (
+                FileKind::File(FileContents {
+                    hash,
+                    data: contents,
+                }),
+                1usize,
+            )
         };
 
         conn.reducers
@@ -250,7 +258,7 @@ fn main() -> anyhow::Result<()> {
                         if let Some(parent) = file_path.parent() {
                             fs::create_dir_all(parent).unwrap();
                         }
-                        fs::write(file_path, contents).unwrap();
+                        fs::write(file_path, &contents.data).unwrap();
                     }
                     FileKind::Directory => {
                         println!("Dir received:\t{:?}", file.path);

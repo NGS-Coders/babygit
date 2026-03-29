@@ -4,16 +4,13 @@
 #![allow(unused, clippy::all)]
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
-use super::file_contents_type::FileContents;
-
 #[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug)]
 #[sats(crate = __lib)]
-pub enum FileKind {
-    File(FileContents),
-
-    Directory,
+pub struct FileContents {
+    pub data: Vec<u8>,
+    pub hash: u32,
 }
 
-impl __sdk::InModule for FileKind {
+impl __sdk::InModule for FileContents {
     type Module = super::RemoteModule;
 }

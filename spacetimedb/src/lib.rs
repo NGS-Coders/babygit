@@ -1,8 +1,14 @@
 use spacetimedb::{Identity, ReducerContext, SpacetimeType, Table, Uuid, ViewContext};
 
 #[derive(SpacetimeType)]
+struct FileContents {
+    data: Vec<u8>,
+    hash: u32,
+}
+
+#[derive(SpacetimeType)]
 enum FileKind {
-    File { contents: Vec<u8> },
+    File(FileContents),
     Directory,
 }
 
