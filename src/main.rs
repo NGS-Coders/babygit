@@ -217,35 +217,35 @@ fn main() -> anyhow::Result<()> {
         }
 
         CliCommand::Work(args) => {
-            let mut tree = FileTree {
-                project_id: args.project_id.clone(),
-                root_dir: args.project_dir.canonicalize().unwrap(),
-                children: HashMap::new(),
-            };
+            let tree = Arc::new(RwLock::new(FileTree::new(
+                args.project_id.clone(),
+                args.project_dir.canonicalize()?,
+            )));
 
             let ignore = Arc::new(RwLock::new(HashMap::<PathBuf, Instant>::new()));
 
             // Callback needs to be registered before creating subscriptions
-            let project_dir = args.project_dir.clone();
+            let tree_clone = tree.clone();
             let ignore_clone = ignore.clone();
+            let project_dir = args.project_dir.clone();
             conn.db.file().on_insert(move |_, file| {
-                // NOTE: Relies on rows being received in the same order they were inserted.
+                let tree = tree_clone.read().unwrap();
+                if !tree.is_ready() {
+                    return;
+                }
 
-                let file_path = project_dir.join(&file.path).canonicalize().unwrap();
+                let file_path = project_dir.join(&file.path);
 
+                // TODO: Update file tree
+
+                // Update when this file was updated
                 let now = Instant::now();
                 let mut ignore = ignore_clone.write().unwrap();
-                ignore.insert(file_path.clone(), now);
+                ignore.insert(file.path.clone().into(), now);
 
                 match file.kind {
                     FileKind::File(ref contents) => {
                         println!("File received:\t{:?}", file.path);
-
-                        // Add file to file tree
-                        let file_uuid = uuid::Uuid::from_u128(file.id.as_u128());
-                        if let Err(e) = tree.add(file_uuid, &file.path) {
-                            eprintln!("Couldn't add file to file tree: {}", e);
-                        }
 
                         if let Some(parent) = file_path.parent() {
                             fs::create_dir_all(parent).unwrap();
@@ -259,7 +259,21 @@ fn main() -> anyhow::Result<()> {
                 }
             });
 
+            let tree_clone = tree.clone();
             conn.subscription_builder()
+                .on_applied(move |ctx| {
+                    let mut tree = tree_clone.write().unwrap();
+
+                    // Queue initial files for tree construction
+                    ctx.db.file().iter().for_each(|file| {
+                        let file_uuid = uuid::Uuid::from_u128(file.id.as_u128());
+                        tree.queue_file(file_uuid, &file.path).unwrap();
+                    });
+
+                    // Initial file rows have been received, begin building file tree
+                    tree.build().unwrap();
+                    println!("Tree built :)")
+                })
                 .add_query(|q| {
                     q.from
                         .file()
@@ -267,6 +281,7 @@ fn main() -> anyhow::Result<()> {
                 })
                 .subscribe();
 
+            let project_dir = args.project_dir.clone().canonicalize()?;
             let mut watcher = RecommendedWatcher::new(
                 move |res: Result<notify::Event, notify::Error>| match res {
                     Ok(event) => {
@@ -275,7 +290,8 @@ fn main() -> anyhow::Result<()> {
                         // Ignore file changes from syncing remote files
                         let now = Instant::now();
                         let ignore = ignore.read().unwrap();
-                        if let Some(ts) = ignore.get(path) {
+                        let stripped_path = path.strip_prefix(&project_dir).unwrap();
+                        if let Some(ts) = ignore.get(stripped_path) {
                             if now.duration_since(*ts).as_millis() < 25 {
                                 return;
                             }
