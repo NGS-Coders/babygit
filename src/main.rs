@@ -3,13 +3,14 @@ mod module_bindings;
 
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, RwLock},
 };
 
 use clap::{Args, Parser, Subcommand};
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use spacetimedb_sdk::{credentials, DbContext, Identity, Table};
+use spacetimedb_sdk::{credentials, DbContext, Identity, Table, TableWithPrimaryKey};
 
 use file_tree::FileTree;
 use module_bindings::*;
@@ -230,10 +231,10 @@ fn main() -> anyhow::Result<()> {
                 project_dir.clone(),
             )));
 
-            // Callback needs to be registered before creating subscriptions
+            // Callback for receiving remote files
             let tree_clone = tree.clone();
             let project_dir_clone = project_dir.clone();
-            conn.db.file().on_insert(move |_, file| {
+            let on_file_received = move |file: &File| {
                 let tree = tree_clone.read().unwrap();
                 if !tree.is_ready() {
                     return;
@@ -257,7 +258,13 @@ fn main() -> anyhow::Result<()> {
                         fs::create_dir_all(file_path).unwrap();
                     }
                 }
-            });
+            };
+
+            // Callbacks need to be registered before creating subscriptions
+            let receiver = on_file_received.clone();
+            conn.db.file().on_insert(move |_, file| receiver(file));
+            let receiver = on_file_received.clone();
+            conn.db.file().on_update(move |_, _, file| receiver(file));
 
             let tree_clone = tree.clone();
             conn.subscription_builder()
@@ -268,13 +275,12 @@ fn main() -> anyhow::Result<()> {
                     ctx.db.file().iter().for_each(|file| {
                         let file_uuid = uuid::Uuid::from_u128(file.id.as_u128());
 
-                        match file.kind {
-                            FileKind::File(contents) => {
-                                tree.queue_file(file_uuid, Some(contents.hash), &file.path)
-                            }
-                            FileKind::Directory => tree.queue_file(file_uuid, None, &file.path),
-                        }
-                        .unwrap()
+                        let hash = match file.kind {
+                            FileKind::File(contents) => Some(contents.hash),
+
+                            FileKind::Directory => None,
+                        };
+                        tree.queue_file(file_uuid, hash, &file.path).unwrap();
                     });
 
                     // Initial file rows have been received, begin building file tree
@@ -294,6 +300,7 @@ fn main() -> anyhow::Result<()> {
                 move |res: Result<notify::Event, notify::Error>| match res {
                     Ok(event) => {
                         let path = event.paths.first().unwrap();
+                        let stripped_path = path.strip_prefix(&project_dir_clone).unwrap();
 
                         match event.kind {
                             EventKind::Create(_) => {
@@ -306,7 +313,6 @@ fn main() -> anyhow::Result<()> {
                                     return;
                                 }
 
-                                let stripped_path = path.strip_prefix(&project_dir_clone).unwrap();
                                 let file_contents = fs::read(path);
                                 if file_contents.is_err() {
                                     return;

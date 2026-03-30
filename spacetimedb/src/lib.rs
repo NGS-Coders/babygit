@@ -165,7 +165,13 @@ fn update_file_contents(
         );
 
         file.kind = FileKind::File(FileContents { hash, data });
-        ctx.db.file().id().update(file);
+        let file = ctx.db.file().id().update(file);
+
+        log::info!(
+            "Updated contents of {} in project {}",
+            file.path,
+            Uuid::from_u128(file.project_id)
+        );
         Ok(())
     } else {
         anyhow::bail!("This file doesn't exist")
