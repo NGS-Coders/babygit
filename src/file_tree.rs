@@ -143,12 +143,12 @@ impl FileTree {
         }
     }
 
-    fn add(
+    pub fn add(
         &mut self,
         file_id: Uuid,
         hash: Option<u32>,
         file_path: impl AsRef<Path>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Arc<Mutex<FileTreeNode>>> {
         let file_path = file_path.as_ref();
 
         // Ensure the given path is a relative path from the project root
@@ -173,9 +173,9 @@ impl FileTree {
                 children: HashMap::new(),
                 hash,
             };
-            self.children
-                .insert(file_path.to_owned(), Arc::new(Mutex::new(new_node)));
-            return Ok(());
+            let value = Arc::new(Mutex::new(new_node));
+            self.children.insert(file_path.to_owned(), value.clone());
+            return Ok(value);
         }
 
         // File is under a subdirectory
@@ -185,7 +185,7 @@ impl FileTree {
             let comp_path = Path::new(first_comp);
 
             if let Some(node) = self.children.get_mut(comp_path).cloned() {
-                self.add_subdirectory(file_id, hash, file_path, node)?;
+                self.add_subdirectory(file_id, hash, file_path, node)
             } else {
                 anyhow::bail!(
                     "Parent directory of file {} doesn't exist in the file tree",
@@ -195,8 +195,6 @@ impl FileTree {
         } else {
             anyhow::bail!("File's path component was not normal")
         }
-
-        Ok(())
     }
 
     fn add_subdirectory(
@@ -205,7 +203,7 @@ impl FileTree {
         hash: Option<u32>,
         file_path: impl AsRef<Path>,
         parent_node: Arc<Mutex<FileTreeNode>>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Arc<Mutex<FileTreeNode>>> {
         let file_path = file_path.as_ref();
         let mut parent_node = parent_node.lock().unwrap();
 
@@ -225,10 +223,9 @@ impl FileTree {
                 children: HashMap::new(),
                 hash,
             };
-            parent_node
-                .children
-                .insert(file_name.into(), Arc::new(Mutex::new(new_node)));
-            return Ok(());
+            let value = Arc::new(Mutex::new(new_node));
+            parent_node.children.insert(file_name.into(), value.clone());
+            return Ok(value);
         }
 
         // File is under a subdirectory
@@ -241,7 +238,7 @@ impl FileTree {
             let comp_path = Path::new(first_comp);
 
             if let Some(node) = parent_node.children.get_mut(comp_path).cloned() {
-                self.add_subdirectory(file_id, hash, file_path, node)?;
+                self.add_subdirectory(file_id, hash, file_path, node)
             } else {
                 anyhow::bail!(
                     "Parent directory of file {} doesn't exist in the file tree",
@@ -251,7 +248,5 @@ impl FileTree {
         } else {
             anyhow::bail!("File's path component was not normal")
         }
-
-        Ok(())
     }
 }

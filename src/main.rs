@@ -3,7 +3,6 @@ mod module_bindings;
 
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, RwLock},
 };
@@ -241,12 +240,30 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 let file_path = project_dir_clone.join(&file.path);
+                let file_hash = match file.kind {
+                    FileKind::File(ref contents) => Some(contents.hash),
+                    FileKind::Directory => None,
+                };
 
-                // TODO: Update file tree
+                if let Some(file_node) = tree.get_file(&file.path).unwrap() {
+                    // File exists in tree
+                    let mut file_node = file_node.lock().unwrap();
+                    file_node.hash = file_hash;
+                } else {
+                    // Create the file in tree
+                    drop(tree);
+                    let mut tree = tree_clone.write().unwrap();
+                    tree.add(
+                        uuid::Uuid::from_u128(file.id.as_u128()),
+                        file_hash,
+                        &file.path,
+                    )
+                    .unwrap();
+                };
 
                 match file.kind {
                     FileKind::File(ref contents) => {
-                        println!("File received:\t{:?}", file_path.display());
+                        println!("File received:\t{}", file_path.display());
 
                         if let Some(parent) = file_path.parent() {
                             fs::create_dir_all(parent).unwrap();
@@ -254,7 +271,7 @@ fn main() -> anyhow::Result<()> {
                         fs::write(file_path, &contents.data).unwrap();
                     }
                     FileKind::Directory => {
-                        println!("Dir received:\t{:?}", file_path.display());
+                        println!("Dir received:\t{}", file_path.display());
                         fs::create_dir_all(file_path).unwrap();
                     }
                 }
@@ -304,7 +321,7 @@ fn main() -> anyhow::Result<()> {
 
                         match event.kind {
                             EventKind::Create(_) => {
-                                println!("File created:\t{:?}", path.display());
+                                println!("File created:\t{}", path.display());
                                 // TODO: sync new file to db
                             }
                             EventKind::Modify(_) => {
@@ -340,7 +357,7 @@ fn main() -> anyhow::Result<()> {
                                     return;
                                 }
                                 println!(
-                                    "File changed:\t{:?}\n\t\t{} -> {:?}",
+                                    "File changed:\t{}\n\t\t{} -> {}",
                                     path.display(),
                                     file_hash,
                                     stored_hash
@@ -357,7 +374,7 @@ fn main() -> anyhow::Result<()> {
                                     .unwrap();
                             }
                             EventKind::Remove(_) => {
-                                println!("File deleted:\t{:?}", path.display());
+                                println!("File deleted:\t{}", path.display());
                                 // TODO: delete file from db
                             }
                             _ => {}
