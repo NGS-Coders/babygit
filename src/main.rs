@@ -321,6 +321,20 @@ fn main() -> anyhow::Result<()> {
 
                         match event.kind {
                             EventKind::Create(_) => {
+                                // Skip if file already exists
+                                {
+                                    let tree = tree_clone.read().unwrap();
+                                    let exists = tree.get_file(stripped_path).unwrap().is_some();
+                                    if exists {
+                                        return;
+                                    }
+                                }
+
+                                // Check if file still exists
+                                if !path.exists() {
+                                    return;
+                                }
+
                                 println!("File created:\t{}", path.display());
 
                                 // Compute file details
@@ -355,8 +369,10 @@ fn main() -> anyhow::Result<()> {
                                 };
 
                                 // Add file to tree
-                                let mut tree = tree_clone.write().unwrap();
-                                tree.add(file_id, hash, stripped_path).unwrap();
+                                {
+                                    let mut tree = tree_clone.write().unwrap();
+                                    tree.add(file_id, hash, stripped_path).unwrap();
+                                }
 
                                 // Sync new file to db
                                 conn.reducers
