@@ -322,7 +322,52 @@ fn main() -> anyhow::Result<()> {
                         match event.kind {
                             EventKind::Create(_) => {
                                 println!("File created:\t{}", path.display());
-                                // TODO: sync new file to db
+
+                                // Compute file details
+                                let file_id = {
+                                    let ctx = uuid::ContextV7::new();
+                                    let ts = uuid::Timestamp::now(ctx);
+                                    uuid::Uuid::new_v7(ts)
+                                };
+                                let (hash, kind) = if path.is_dir() {
+                                    (None, FileKind::Directory)
+                                } else {
+                                    let contents = fs::read(path).unwrap();
+                                    let hash = crc32fast::hash(&contents);
+                                    (
+                                        Some(hash),
+                                        FileKind::File(FileContents {
+                                            hash,
+                                            data: contents,
+                                        }),
+                                    )
+                                };
+
+                                // Get parent ID
+                                let parent_path = stripped_path.parent().unwrap();
+                                let parent_id = if parent_path == Path::new("") {
+                                    None
+                                } else {
+                                    let tree = tree_clone.read().unwrap();
+                                    let parent = tree.get_file(parent_path).unwrap().unwrap();
+                                    let parent = parent.lock().unwrap();
+                                    Some(spacetimedb_sdk::Uuid::from_u128(parent.id.as_u128()))
+                                };
+
+                                // Add file to tree
+                                let mut tree = tree_clone.write().unwrap();
+                                tree.add(file_id, hash, stripped_path).unwrap();
+
+                                // Sync new file to db
+                                conn.reducers
+                                    .add_file_to_project(
+                                        spacetimedb_sdk::Uuid::from_u128(file_id.as_u128()),
+                                        spacetimedb_sdk::Uuid::from_u128(args.project_id.as_u128()),
+                                        stripped_path.to_str().unwrap().to_owned(),
+                                        kind,
+                                        parent_id,
+                                    )
+                                    .unwrap();
                             }
                             EventKind::Modify(_) => {
                                 // Skip if a directory was modified
